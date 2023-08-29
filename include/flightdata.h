@@ -3,17 +3,10 @@
 #include <stdint.h>
 #include <string>
 
-#define STRUCT_SIZE 200 // subject to change
 enum State{RAIL,ENGINE_FLIGHT,CONTROLLED_FLIGHT,FALL};
 extern State state;
 
-extern float P0;
-
 #define SAMPLE_FREQUENCY 100 //in Hz
-#define BUFFER_LENGTH 100 // subject to change
-#define G 9.81 //gravitaional cceleration
-#define AIR_DENSITY 2   
-
 struct barometer
 {
     float pressure;
@@ -23,7 +16,7 @@ struct barometer
 
 union Data{
 
-    struct
+    struct data_struct
     {
     
         uint32_t timeStamp;
@@ -59,8 +52,6 @@ union Data{
             data += ",";
             data += state;
             data += ",";
-            //data += ready; 
-            //data += ",";
 
             data += pressure;
             data += ",";
@@ -101,8 +92,8 @@ union Data{
             data += angle2;
             return data;
         }
-    }values __attribute__((packed)); // will probably do this manually, 
-                                      //so I know how to index the union
-    uint8_t byte[STRUCT_SIZE];
+    }values __attribute__((packed));
+                                    
+    uint8_t byte[sizeof(data_struct)];
 }; 
 #endif

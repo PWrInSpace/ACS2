@@ -17,6 +17,9 @@
 State state = RAIL;
   
 //File file;
+ShiftReg launch_detector(check_engine_fiered, 5);// later change to a value higher than 5
+ShiftReg burnout_detector(check_engine_burnout, 30);
+ShiftReg apogee_detector(check_decreasing_altitude,30);
 Adafruit_LSM303_Accel_Unified acc;
 Adafruit_LSM303DLH_Mag_Unified mag;
 Adafruit_L3GD20_Unified gyro;
@@ -72,12 +75,16 @@ void setup()
    
       
     vTaskDelay(pdMS_TO_TICKS(2000));
-    fc.sensorQueue = xQueueCreate(2,sizeof(Data));
-    fc.filterQueue = xQueueCreate(1,sizeof(Data));
-    fc.controlQueue = xQueueCreate(1,sizeof(Data));
-    fc.barometerQueue = xQueueCreate(1,sizeof(barometer));
+    fc.sensorQueue = xQueueCreate(2,sizeof(Data)); //for raw IMU and mag data
+    fc.filterQueue = xQueueCreate(1,sizeof(Data)); //for processed data
+    fc.controlQueue = xQueueCreate(1,sizeof(Data));//for control signals
+    fc.normQueue = xQueueCreate(1,sizeof(float));  // for acceleration norm
+    fc.stateQueue = xQueueCreate(1,sizeof(float));  // for acceleration norm
+    fc.barometerQueue = xQueueCreate(1,sizeof(barometer));// for barometer readings; always overwritten due to different frequency
 
-    if(fc.sensorQueue == NULL || fc.filterQueue == NULL || fc.controlQueue == NULL || fc.barometerQueue == NULL)
+    if(fc.normQueue  == NULL || fc.sensorQueue  == NULL || 
+       fc.filterQueue == NULL || fc.controlQueue == NULL ||
+       fc.barometerQueue == NULL || fc.stateQueue == NULL)
     {
      Serial.printf("Queue creation failed");
     }
@@ -122,6 +129,13 @@ void setup()
                 1,
                 &fc.Write_handle);
 
+    xTaskCreate(aggregator.tasks.StateMachine,
+                "StateMachine",
+                2048,
+                NULL,
+                4,
+                &fc.State_machine_handle);
+
 
      
    vTaskDelete(NULL);
@@ -129,30 +143,5 @@ void setup()
 
 void loop()
 {
-//make state available through queues???
-// better not to make it global
-while(true)
-{
-
-  switch (state)
-  {
-
-    case RAIL: // rocket waiting for launch, no data logging
-               // launch detected intertially
-      state = aggregator.loops.Rail();
-      break;
-    case ENGINE_FLIGHT: // engine on, control loop off
-      state = aggregator.loops.EngineFlight();
-      break;
-    case CONTROLLED_FLIGHT: //engine off, control loop on
-      state = aggregator.loops.ControlledFlight();
-      break;
-    case FALL: //parachute deployed, no more data collection, control loop off
-      state = aggregator.loops.Fall();
-      break;
-    default:// for error handling
-      break;
-
-}
-}
+  vTaskDelete(NULL);
 }

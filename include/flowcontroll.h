@@ -14,12 +14,15 @@ struct FlowControll{
   QueueHandle_t filterQueue;
   QueueHandle_t controlQueue;
   QueueHandle_t barometerQueue;
+  QueueHandle_t normQueue;
+  QueueHandle_t stateQueue;
 
   TaskHandle_t Filter_handle;
   TaskHandle_t Read_handle;
   TaskHandle_t Control_handle;
   TaskHandle_t Write_handle;
   TaskHandle_t Barometer_handle;
+  TaskHandle_t State_machine_handle;
 
 };
 

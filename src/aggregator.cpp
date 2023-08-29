@@ -2,16 +2,13 @@
 #include <Arduino.h>
 
 
-float P0 = 1000;
 Madgwick filter;
 
-Loops::Loops()
-{
-}
 
-State Loops::Rail()
+State Rail(float acc_norm)
 {
-    if(LaunchDetected())//check acceleration
+
+    if(launch_detector.check((void*)(&acc_norm)))
     {
         //start recording data in a separate process
 
@@ -22,9 +19,9 @@ State Loops::Rail()
 
 }
 
-State Loops::EngineFlight()
+State EngineFlight(float acc_norm)
 {
-    if(EngineBurnout())//check if engine acceleration stops
+    if(burnout_detector.check((void*)(&acc_norm)))
     {
         //start controll loop
 
@@ -35,9 +32,10 @@ State Loops::EngineFlight()
 
 }
 
-State Loops::ControlledFlight()
+State ControlledFlight(float alt)
 {
-    if(ParachuteDeployed())//check if altitude starts regularily  decreasing   
+
+    if(apogee_detector.check((void*)(&alt)))//check if altitude starts regularily  decreasing   
     {
         //stop recording data
         return FALL;
@@ -46,25 +44,11 @@ State Loops::ControlledFlight()
         return CONTROLLED_FLIGHT;
 }
 
-State Loops::Fall()
+State Fall()
 {
     return FALL;   
 }
 
-bool Loops::LaunchDetected()
-{
-    return false;
-}
-
-bool Loops::EngineBurnout()
-{
-    return false;
-}
-
-bool Loops::ParachuteDeployed()
-{
-    return false;
-}
 
 GlobalAgreggator::GlobalAgreggator()
 {
@@ -128,13 +112,53 @@ void Tasks::ReadSensors(void *parameters)
     vTaskDelete(NULL);
 }
 
+void Tasks::StateMachine(void *parameters)
+{
+    float data=0;
+    for(;;)
+    {
+        if(xQueueReceive(fc.stateQueue, (void*)&data,portMAX_DELAY) != pdPASS)// wait for queue to fill
+        {
+            fprintf(stderr,"Measurements not received\n");
+            continue;
+        }
+
+  
+      switch (state)
+      {
+  
+        case RAIL: // rocket waiting for launch, no data logging
+                   // launch detected intertially
+          state = Rail(data);
+          break;
+        case ENGINE_FLIGHT: // engine on, control loop off
+          state = EngineFlight(data);
+          break;
+        case CONTROLLED_FLIGHT: //engine off, control loop on
+
+        Serial.printf("%u  %3.3f\n\r",state,data);
+          state = ControlledFlight(data);
+          break;
+        case FALL: //apogee achieved, no more data collection, control loop off
+          vTaskDelete(NULL); //no more state changes
+          //state = Fall();
+          break;
+        default:
+          break;
+    
+        }
+    }
+    vTaskDelete(NULL);
+}
+
 void Tasks::ProcessData(void *parameters)
 {
     Data tmp;
     barometer bmp;
+    float norm;
    while(true)
    {
-        //if(xQueueReceive(sensorQueue, (void*)&tmp,pdMS_TO_TICKS(5*1000)) != pdPASS)
+        
         if(xQueueReceive(fc.sensorQueue, (void*)&tmp,portMAX_DELAY) != pdPASS)// wait for queue to fill
         {
             fprintf(stderr,"Measurements not received\n");
@@ -146,6 +170,7 @@ void Tasks::ProcessData(void *parameters)
             fprintf(stderr,"Barometer measurements not received\n");
             continue;
         }
+        
 
         tmp.values.pressure=bmp.pressure;
         tmp.values.altitude=bmp.altitude;
@@ -158,13 +183,21 @@ void Tasks::ProcessData(void *parameters)
         tmp.values.roll = filter.getRoll();
         tmp.values.pitch = filter.getPitch();
         tmp.values.yaw = filter.getYaw();
+        if(RAIL == state || ENGINE_FLIGHT == state)
+        {
+        norm = sqrt(tmp.values.accelX*tmp.values.accelX + tmp.values.accelY*tmp.values.accelY + tmp.values.accelZ*tmp.values.accelZ);
+         if(xQueueSend(fc.stateQueue, (void*)&norm ,0) != pdPASS )
+         {
+             fprintf(stderr,"flight data not sent to state machine\n");
+         }
+        }
 
         //tmp.values.altitude = (P0-tmp.values.pressure )/(AIR_DENSITY*G);
     //will be corrected by a complementary filter with integrated acceleration
     //a matrix transformation is needed here to extract the vertical component
         if(xQueueSend(fc.filterQueue, (void*)&tmp, 0 ) != pdPASS)
         {
-            fprintf(stderr,"State was not sent for processing\n");
+            fprintf(stderr,"flight data not sent for processing\n");
         }
 
 
@@ -199,9 +232,10 @@ void Tasks::CalculateControlSignal(void *parameters)
 
 void Tasks::WriteToFlash(void *parameters)
 {
-    Data tmp;
+    Data tmp={0};
     std::string string_data;
     float accel_len=0.0;
+    float old_alt=0.0;
     for(;;)
     {
         if(xQueueReceive(fc.controlQueue, (void*) &tmp, portMAX_DELAY))
@@ -218,8 +252,8 @@ void Tasks::WriteToFlash(void *parameters)
         //  Serial.printf("Roll - %f, Pitch - %f, Yaw - %f\n\r",tmp.values.roll,tmp.values.pitch,tmp.values.yaw);
     //    Serial.printf("%u %lu ",alt.check((void*)(&tmp.values.altitude)),alt.state);
     //    Serial.printf( "%3.3f %3.3f\n\r",tmp.values.pressure,tmp.values.altitude);
-        //accel_len = sqrt(tmp.values.accelX*tmp.values.accelX + tmp.values.accelY*tmp.values.accelY + tmp.values.accelZ*tmp.values.accelZ);
-        //Serial.printf("%3.3f  %3.3f  %3.3f  %3.3f\n\r",tmp.values.roll,tmp.values.pitch,tmp.values.yaw,accel_len);
+        accel_len = sqrt(tmp.values.accelX*tmp.values.accelX + tmp.values.accelY*tmp.values.accelY + tmp.values.accelZ*tmp.values.accelZ);
+        //Serial.printf("%u  %3.3f  %3.3f  %3.3f\n\r",state,tmp.values.altitude,tmp.values.diff);
                           
         }   
         else
@@ -237,26 +271,42 @@ void Tasks::ReadBarometer(void *parameters)
     BaseType_t xWasDelayed;
     Adafruit_BMP085 bmp ;
     barometer data;
+    const float ALPHA = 0.2;
     
- 
+    float new_alt = 0;
+    float old_alt = 0;
     if (!bmp.begin(BMP085_ULTRALOWPOWER)) {
         Serial.println("Could not find a valid BMP085 sensor, check wiring!");
         while (1) {}
     }
-     sensors_event_t event;
     // Initialise the xLastWakeTime variable with the current time.
-    ShiftReg alt(check_decreasing_altitude,10);
-    xLastWakeTime = xTaskGetTickCount ();
+    
 
+    xLastWakeTime = xTaskGetTickCount ();
+    float initial_pressure = bmp.readPressure();
+    float initial_temperature = bmp.readTemperature();
     for(;;)
     {
         if(pdFALSE == (xWasDelayed = xTaskDelayUntil( &xLastWakeTime, pdMS_TO_TICKS(30) )))//dumb fix because pressure measurements took too long
             Serial.printf("RTOS can't keep up with current barometer measurement frequency!!!\n\r");
 
         data.pressure = bmp.readPressure();
-        data.altitude = 44330 * (1.0 - pow(data.pressure / 101325 , 0.1903));// 101325 is the standard sea level pressure
-        Serial.printf("%u %lu ",alt.check((void*)(&data.altitude)),alt.state);
-        Serial.printf( "%3.3f %3.3f\n\r",data.pressure,data.altitude);
+        //data.altitude = 44330 * (1.0 - pow(data.pressure / 101325 , 0.1903));// 101325 is the standard sea level pressure
+        old_alt = new_alt;
+        //new_alt = 44330 * (1.0 - pow(data.pressure / 101325 , 0.1903));// 101325 is the standard sea level pressure
+        new_alt = (initial_temperature+273.15)/0.0065*(1.0 - pow(data.pressure / initial_pressure , 0.1903));//borrowed from apogemix
+        new_alt = ALPHA*old_alt + (1-ALPHA)*new_alt;
+        data.altitude = new_alt;
+
+        if(CONTROLLED_FLIGHT == state)
+        {
+         if(xQueueSend(fc.stateQueue, (void*)&data.altitude ,0) != pdPASS )// 
+         //if(xQueueSend(fc.stateQueue, (void*)&new_speed ,0) != pdPASS )
+         {
+             fprintf(stderr,"altitude not sent to state machine\n");
+         }
+        }
+
 
         if(xQueueOverwrite(fc.barometerQueue, (void*)&data ) != pdPASS )
         {
@@ -268,46 +318,66 @@ void Tasks::ReadBarometer(void *parameters)
 }
 
 
-ShiftReg::ShiftReg(uint8_t (*condition)(void*), uint32_t n)
+ShiftReg::ShiftReg(uint8_t (*condition)(void*), uint8_t n)
 {
     condition_func=condition;
+    n = n > 31 ? 31 : n;
     count = (-1) << n-1;
-    state = 0;
+    reg_state = 0;
 }
 
 uint8_t ShiftReg::check(void* params)
 {
-    state = (state<<1) | !condition_func(params) | (count<<1);
-    return (state == count);
+    reg_state = (reg_state<<1) | !condition_func(params) | (count<<1);
+    return (reg_state == count);
 }
 
 uint8_t check_decreasing_altitude(void* altitude)
 {
-    //because the barometer measurements are done at a different frequency and 
-    //this function is executed at the base 100Hz, multiple samples have to be checked, because they can
-    //remain constant during the main sampling period(up to 3)
-
-    //alternatively, this state change check can be performed at this lower frequency, 
-    //because it's not as important as taking measurements.
-
-    //this latter approach works better, but the parameters have to be tweeked in accordance to the falling
-    //rocket speed, eg. the fewer checks have to be performed the sooner the apoapsis will be caught,
-    //but it can lead to false positives
-
-    //might need to average a large number of samples, 
-    //pressure changes to slowly for this method to register
-
-    static float alt_prev = 0;
+    static float alt_max = 0;
     float current_alt = *(float*)altitude;
 
-    if((current_alt - alt_prev )<= 0)
+    if(current_alt +1< alt_max)//jebac
     {
-        alt_prev = current_alt;
-        return 1  ;
+        return 1;
     }
     else
     {
-        alt_prev = current_alt;
+        alt_max = current_alt;
         return 0;
     }
+}
+
+uint8_t check_engine_fiered(void* acceleration_norm)
+{
+    float norm = *(float*)acceleration_norm;
+    //max acceleration should be around 6.6g
+    // around 5.5g should be safe enough for the fiering threshold
+    if(norm > 55)
+    {
+        return 1;   
+    }
+    else
+    {
+        return 0;
+    }
+
+}
+
+uint8_t check_engine_burnout(void* acceleration_norm)
+{
+    float norm = *(float*)acceleration_norm;
+    //accelerometer at reast reads a norm of around 8.5
+    // threshold of 10 should be good enough, considering that drag
+    // will sum with the gravity vector
+
+    if(norm < 10)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+
 }
