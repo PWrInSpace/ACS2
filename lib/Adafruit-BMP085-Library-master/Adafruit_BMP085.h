@@ -50,6 +50,11 @@
 #define BMP085_READTEMPCMD 0x2E     //!< Read temperature control register value
 #define BMP085_READPRESSURECMD 0x34 //!< Read pressure control register value
 
+struct kurwamac
+{
+  float pressure;
+  float temperature;
+};
 /*!
  * @brief Main BMP085 class
  */
@@ -72,7 +77,7 @@ public:
    * @brief Gets the pressure over I2C from the BMP085
    * @return Returns the pressure
    */
-  int32_t readPressure(void);
+  kurwamac readPressure(void);
   /*!
    * @brief Calculates the pressure at sea level
    * @param altitude_meters Current altitude (in meters)

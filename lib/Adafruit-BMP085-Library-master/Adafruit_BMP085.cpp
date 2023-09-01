@@ -145,7 +145,7 @@ uint32_t Adafruit_BMP085::readRawPressure(void) {
   return raw;
 }
 
-int32_t Adafruit_BMP085::readPressure(void) {
+kurwamac Adafruit_BMP085::readPressure(void) {
   int32_t UT, UP, B3, B5, B6, X1, X2, X3, p;
   uint32_t B4, B7;
 
@@ -238,11 +238,14 @@ int32_t Adafruit_BMP085::readPressure(void) {
   Serial.print("p = ");
   Serial.println(p);
 #endif
-  return p;
+  kurwamac kurwaaa;
+  kurwaaa.pressure=p;
+  kurwaaa.temperature=UT;
+  return kurwaaa;
 }
 
 int32_t Adafruit_BMP085::readSealevelPressure(float altitude_meters) {
-  float pressure = readPressure();
+  float pressure = readPressure().pressure;
   return (int32_t)(pressure / pow(1.0 - altitude_meters / 44330, 5.255));
 }
 
@@ -271,7 +274,7 @@ float Adafruit_BMP085::readTemperature(void) {
 float Adafruit_BMP085::readAltitude(float sealevelPressure) {
   float altitude;
 
-  float pressure = readPressure();
+  float pressure = readPressure().pressure;
 
   altitude = 44330 * (1.0 - pow(pressure / sealevelPressure, 0.1903));
 

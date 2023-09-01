@@ -17,18 +17,30 @@
 State state = RAIL;
   
 //File file;
-ShiftReg launch_detector(check_engine_fiered, 5);// later change to a value higher than 5
+ShiftReg launch_detector(check_engine_fiered, 30);// later change to a value higher than 5
 ShiftReg burnout_detector(check_engine_burnout, 30);
 ShiftReg apogee_detector(check_decreasing_altitude,30);
 Adafruit_LSM303_Accel_Unified acc;
 Adafruit_LSM303DLH_Mag_Unified mag;
 Adafruit_L3GD20_Unified gyro;
 
+Servo fin_1;
+Servo fin_2;
+
+float bias_x;
+float bias_y;
+float bias_z;
+
 void setup()
 {
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    Serial.begin(115200);
+  Serial.begin(115200);
 
+  //configure servos
+	ESP32PWM::allocateTimer(0);
+	fin_1.setPeriodHertz(50);
+	fin_1.attach(FIN_1_PIN, 500, 2400);
+	fin_2.setPeriodHertz(50);
+	fin_2.attach(FIN_2_PIN, 500, 2400);
 
   //doesnt mount without true, maybe mount when flight is detected?
 
@@ -46,16 +58,33 @@ void setup()
     gyro = Adafruit_L3GD20_Unified(20);
 
     filter.begin(SAMPLE_FREQUENCY);
-
+    vTaskDelay(pdMS_TO_TICKS(2000));
    //gyro.enableAutoRange(true);
   
   /* Initialise the sensor */
-  if(!gyro.begin())
-  {
-    /* There was a problem detecting the L3GD20 ... check your connections */
-    Serial.println("Ooops, no L3GD20 detected ... Check your wiring!");
-    while(1);
-  }
+    gyro.enableAutoRange(false);
+    if(!gyro.begin())
+    {
+      /* There was a problem detecting the L3GD20 ... check your connections */
+      Serial.println("Ooops, no L3GD20 detected ... Check your wiring!");
+      while(1);
+    }
+    Serial.println("Correcting biases");
+    int samples = 1000;
+    bias_x=bias_y=bias_z=0;
+     sensors_event_t event;
+    for(int i = 0;i<samples;++i)
+    {
+        gyro.getEvent(&event);
+        bias_x+=event.gyro.x;
+        bias_y+=event.gyro.y;
+        bias_z+=event.gyro.z;
+    }
+    bias_x/=samples;
+    bias_y/=samples;
+    bias_z/=samples;
+
+
 
     if (!acc.begin()) {
         /* There was a problem detecting the ADXL345 ... check your connections */
@@ -78,8 +107,8 @@ void setup()
     fc.sensorQueue = xQueueCreate(2,sizeof(Data)); //for raw IMU and mag data
     fc.filterQueue = xQueueCreate(1,sizeof(Data)); //for processed data
     fc.controlQueue = xQueueCreate(1,sizeof(Data));//for control signals
-    fc.normQueue = xQueueCreate(1,sizeof(float));  // for acceleration norm
-    fc.stateQueue = xQueueCreate(1,sizeof(float));  // for acceleration norm
+    fc.normQueue = xQueueCreate(1,sizeof(Data));  // for acceleration norm
+    fc.stateQueue = xQueueCreate(1,sizeof(Data));  // for acceleration norm
     fc.barometerQueue = xQueueCreate(1,sizeof(barometer));// for barometer readings; always overwritten due to different frequency
 
     if(fc.normQueue  == NULL || fc.sensorQueue  == NULL || 
@@ -135,9 +164,6 @@ void setup()
                 NULL,
                 4,
                 &fc.State_machine_handle);
-
-
-     
    vTaskDelete(NULL);
 }
 

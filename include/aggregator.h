@@ -12,6 +12,12 @@
 #include <Adafruit_LSM303_Accel.h>
 #include <Adafruit_LSM303DLH_Mag.h>
 #include <Adafruit_L3GD20_U.h>
+#include <ESP32Servo.h>
+#include <BasicLinearAlgebra.h>
+
+#define FIN_1_PIN 12
+#define FIN_2_PIN 13
+
     static struct timespec start;
     static struct timespec finish;
 
@@ -19,6 +25,9 @@
     extern Adafruit_LSM303DLH_Mag_Unified mag;
     extern Adafruit_L3GD20_Unified gyro;
     extern State state;
+
+    extern Servo fin_1; 
+    extern Servo fin_2;
 
     extern FlowControll fc;
 
@@ -49,6 +58,7 @@ class Tasks
     static void ReadBarometer(void* parameters);
     static void ProcessData(void* parameters);
     static void CalculateControlSignal(void* parameters);
+    static void ServoController(void* parameters);
     static void WriteToFlash(void* parameters);
     static void StateMachine(void* parameters);
 };
@@ -61,9 +71,9 @@ class Tasks
     extern ShiftReg burnout_detector;
     extern ShiftReg apogee_detector;
 
-    State Rail(float acc_norm);
-    State EngineFlight(float acc_norm);
-    State ControlledFlight(float altitude);
+    State Rail(Data * data);
+    State EngineFlight(Data * data);
+    State ControlledFlight(Data *data);
     State Fall();
 
     bool ParachuteDeployed();

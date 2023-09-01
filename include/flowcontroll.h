@@ -16,6 +16,7 @@ struct FlowControll{
   QueueHandle_t barometerQueue;
   QueueHandle_t normQueue;
   QueueHandle_t stateQueue;
+  QueueHandle_t servoQueue;
 
   TaskHandle_t Filter_handle;
   TaskHandle_t Read_handle;
@@ -23,6 +24,7 @@ struct FlowControll{
   TaskHandle_t Write_handle;
   TaskHandle_t Barometer_handle;
   TaskHandle_t State_machine_handle;
+  TaskHandle_t Servo_handle;
 
 };
 

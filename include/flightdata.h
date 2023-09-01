@@ -11,8 +11,14 @@ struct barometer
 {
     float pressure;
     float altitude;   
+    float density;
 };
 
+struct servo_angles
+{
+    float angle1;
+    float angle2;
+};
 
 union Data{
 
@@ -36,12 +42,13 @@ union Data{
         //Processed data
         float altitude; // by integration and pressure readings
 
-        float roll, pitch, yaw;// by magwick
+        //float roll, pitch, yaw;// by magwick
 
         //Control surfaces
 
         float angle1, angle2;
 
+//        float dupa;
 
 
         std::string toString()
@@ -79,12 +86,12 @@ union Data{
             data += altitude; 
             data += ",";
 
-            data += roll;
-            data += ",";
-            data += pitch;
-            data += ",";
-            data += yaw;
-            data += ",";
+            //data += roll;
+            //data += ",";
+            //data += pitch;
+            //data += ",";
+            //data += yaw;
+            //data += ",";
 
 
             data += angle1;
