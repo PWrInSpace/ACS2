@@ -1,7 +1,6 @@
 #include "aggregator.h"
 #include <Arduino.h>
 
-
 Madgwick filter;
 
 extern float bias_x;
@@ -12,7 +11,7 @@ extern float bias_z;
 State Rail(Data *data)
 {
         float acc_norm = sqrt(data->values.accelX*data->values.accelX + data->values.accelY*data->values.accelY + data->values.accelZ*data->values.accelZ);
-    if(data->values.altitude > 2 && launch_detector.check((void*)(&acc_norm)))// at least 2 meters off the ground to prevent accidentaly chaning state due to bumping
+    if(data->values.altitude > 3 && launch_detector.check((void*)(&acc_norm)))// at least 2 meters off the ground to prevent accidentaly chaning state due to bumping
     {
         //start recording data in a separate process
 
@@ -43,6 +42,7 @@ State ControlledFlight(Data *data)
     if(apogee_detector.check((void*)(&data->values.altitude)))//check if altitude starts regularily  decreasing   
     {
         //stop recording data
+        write_flag = 1;
         return FALL;
     }
     else
@@ -101,7 +101,7 @@ void Tasks::ReadSensors(void *parameters)
     for(;;)
     {
         if(pdFALSE == (xWasDelayed = xTaskDelayUntil( &xLastWakeTime, pdMS_TO_TICKS(10) )))//strict 100Hz sampling frequency
-            Serial.printf("RTOS can't keep up with current measurement frequency!!!\n\r");
+            //Serial.printf("RTOS can't keep up with current measurement frequency!!!\n\r");
         clock_gettime( CLOCK_REALTIME, &finish );
         tmp.values.timeStamp = finish.tv_sec*1000LL + finish.tv_nsec/1e6 - (start.tv_sec*1000LL + start.tv_nsec/1e6); // elapsed time in ms
         //some compiler fuckery prevents rand() from returning anything other than 0, 
@@ -168,8 +168,8 @@ void Tasks::StateMachine(void *parameters)
           state = ControlledFlight(&tmp);
           break;
         case FALL: //apogee achieved, no more data collection, control loop off
-          vTaskDelete(NULL); //no more state changes
-          //state = Fall();
+          //no more state changes
+          state = Fall();
           break;
         default:
           break;
@@ -256,7 +256,7 @@ void Tasks::CalculateControlSignal(void *parameters)
 
         if(CONTROLLED_FLIGHT == state){
                 u = -a*angle-b*(tmp.values.gyroZ-bias_z);
-            if(new_vel > 1)
+            if(vel > 1)
                 u/=vel*vel;//velocity must be positive
             else 
                 u = 0; // avoid zero singularity
@@ -265,17 +265,19 @@ void Tasks::CalculateControlSignal(void *parameters)
                 u*=180/3.1415;
                 servo.angle1=u;
                 tmp.values.angle1=u;
-                servo.angle2=-u;
+                servo.angle2=u;
                 tmp.values.angle2=-u;
                 fin_1.write(servo.angle1+90); 
-                fin_2.write(servo.angle2+90); 
+                fin_2.write(servo.angle2 +80); 
+                
         }
+        
         new_vel = ALPHA*new_vel + (1-ALPHA)*100*(tmp.values.altitude-old_alt);
         old_alt = tmp.values.altitude;
 //velocity's fine, assume constant density
         acc_norm = sqrt(tmp.values.accelX*tmp.values.accelX + tmp.values.accelY*tmp.values.accelY + tmp.values.accelZ*tmp.values.accelZ);
         //Serial.printf("%u %3.3f %3.3f  %3.3f %3.3f %3.3f\n\r",state, u, angle,acc_norm,tmp.values.dupa,tmp.values.altitude);
-
+        if (FALL != state)
         if(xQueueSend(fc.controlQueue, (void*)&tmp, 0 ) != pdPASS)
         {
             fprintf(stderr,"Control was not sent for writing\n");
@@ -293,16 +295,71 @@ void Tasks::WriteToFlash(void *parameters)
     std::string string_data;
     float accel_len=0.0;
     float angle=0;
+  
+ 
+    unsigned i,j;
     for(;;)
     {
+        if(state == ENGINE_FLIGHT || state == CONTROLLED_FLIGHT)
+        {
         if(xQueueReceive(fc.controlQueue, (void*) &tmp, portMAX_DELAY))
         {
-                          
+            if(RAM_iter<MEMORY_SIZE)
+                          RAM_Data[RAM_iter++] = tmp;
+        
         }   
         else
             Serial.printf("GÓWNO WYJEBALO");
+        }
+        if(state == FALL)
+        {
+            if(write_flag)
+            {
+                 file = LITTLEFS.open("/altimetry", FILE_WRITE);
+                 Serial.printf("writing to file\n");
+                for(i = 0; i< MEMORY_SIZE;++i )
+                {
+                        file.write((uint8_t*)RAM_Data[i].byte,sizeof(Data));
+                }
+                file.close();
+                 //file = LITTLEFS.open("/altimetry", FILE_READ);
+      
+                write_flag=0;
+            }
+            else
+            { 
+              
+                
+            }
+        }
     }
 
+    vTaskDelete(NULL);
+}
+
+void Tasks::FileRead(void* parameters)
+{
+    pinMode(0, INPUT_PULLUP); 
+    Data tmp;
+    for(;;)
+    {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if(! digitalRead(0)&& state == RAIL)
+        {
+              file = LITTLEFS.open("/altimetry", FILE_READ);
+                for(int i = 0; i < MEMORY_SIZE; ++i)
+                {
+                    file.readBytes((char*)tmp.byte,sizeof(Data));
+                    Serial.printf("%lu %u %f %f %f %f %f %f %f %f %f %f %f %f\n\r", tmp.values.timeStamp, tmp.values.state,
+                                    tmp.values.accelX, tmp.values.accelY, tmp.values.accelZ,
+                                    tmp.values.gyroX, tmp.values.gyroY, tmp.values.gyroZ,
+                                    tmp.values.magX, tmp.values.magY, tmp.values.magZ,
+                                    tmp.values.angle1, tmp.values.angle2);
+                }       
+                file.close();
+                
+        }
+    }
     vTaskDelete(NULL);
 }
 
@@ -335,7 +392,7 @@ void Tasks::ReadBarometer(void *parameters)
     for(;;)
     {
         if(pdFALSE == (xWasDelayed = xTaskDelayUntil( &xLastWakeTime, pdMS_TO_TICKS(32) )))//dumb fix because pressure measurements took too long
-            Serial.printf("RTOS can't keep up with current barometer measurement frequency!!!\n\r");
+          //  Serial.printf("RTOS can't keep up with current barometer measurement frequency!!!\n\r");
 
         japierdole = bmp.readPressure();
         data.pressure=japierdole.pressure;
@@ -350,14 +407,14 @@ void Tasks::ReadBarometer(void *parameters)
          if(xQueueSend(fc.stateQueue, (void*)&jestemnagranicy ,0) != pdPASS )// 
          //if(xQueueSend(fc.stateQueue, (void*)&new_speed ,0) != pdPASS )
          {
-             fprintf(stderr,"altitude not sent to state machine\n");
+             Serial.printf("altitude not sent to state machine\n");
          }
         }
 
 
         if(xQueueOverwrite(fc.barometerQueue, (void*)&data ) != pdPASS )
         {
-            fprintf(stderr,"Barometer measurements not sent\n");
+            Serial.printf("Barometer measurements not sent\n");
         }
     }
 
@@ -384,7 +441,7 @@ uint8_t check_decreasing_altitude(void* altitude)
     static float alt_max = 0;
     float current_alt = *(float*)altitude;
 
-    if(current_alt +2< alt_max)//jebac
+    if(current_alt +3< alt_max)//jebac
     {
         return 1;
     }

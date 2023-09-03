@@ -4,8 +4,8 @@
 #include "flowcontroll.h"
 #include "freertos/FreeRTOS.h"
 
-#include "FS.h"
-#include "LittleFS.h"
+// #include "FS.h"
+// #include "LittleFS.h"
 //#include "SPIFFS.h"
 
 //#define FORMAT_SPIFFS_IF_FAILED true
@@ -30,10 +30,14 @@ Servo fin_2;
 float bias_x;
 float bias_y;
 float bias_z;
+ Data RAM_Data[MEMORY_SIZE];
+ unsigned RAM_iter;
+File file;
+int write_flag=0;
 
 void setup()
 {
-  Serial.begin(115200);
+
 
   //configure servos
 	ESP32PWM::allocateTimer(0);
@@ -42,13 +46,17 @@ void setup()
 	fin_2.setPeriodHertz(50);
 	fin_2.attach(FIN_2_PIN, 500, 2400);
 
-  //doesnt mount without true, maybe mount when flight is detected?
+  write_flag=0;
 
-  if(!LittleFS.begin(true))
+  //doesnt mount without true, maybe mount when flight is detected?
+  //while(1){Serial.println("Gówno");}
+  
+  if(!LITTLEFS.begin(true))
   {
     Serial.printf("An Error has occurred while mounting LittleFS");
     return;
   }
+
 
 
 
@@ -79,11 +87,11 @@ void setup()
         bias_x+=event.gyro.x;
         bias_y+=event.gyro.y;
         bias_z+=event.gyro.z;
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
     bias_x/=samples;
     bias_y/=samples;
     bias_z/=samples;
-
 
 
     if (!acc.begin()) {
@@ -94,16 +102,14 @@ void setup()
     }
     acc.setRange(LSM303_RANGE_8G);
     acc.setMode(LSM303_MODE_NORMAL);
-    mag.enableAutoRange(true); 
+
     if (!mag.begin()) {
         /* There was a problem detecting the LSM303 ... check your connections */
         Serial.println("Ooops, no LSM303 detected ... Check your wiring!");
         while (1)
         ;
     }
-   
-      
-    vTaskDelay(pdMS_TO_TICKS(2000));
+  
     fc.sensorQueue = xQueueCreate(2,sizeof(Data)); //for raw IMU and mag data
     fc.filterQueue = xQueueCreate(1,sizeof(Data)); //for processed data
     fc.controlQueue = xQueueCreate(1,sizeof(Data));//for control signals
@@ -118,9 +124,25 @@ void setup()
      Serial.printf("Queue creation failed");
     }
 
+for(int i = 0; i < 5 ; i ++)
+{
+fin_1.write(90+i*6);
+fin_2.write(90-i*6); 
+vTaskDelay(pdMS_TO_TICKS(100));
+}
+for(int i = 0; i < 5 ; i ++)
+{
+fin_1.write(90-i*6);
+fin_2.write(90+i*6); 
+vTaskDelay(pdMS_TO_TICKS(100));
+}
 
+fin_1.write(90);
+fin_2.write(80);
 
+state = RAIL;
 
+ Serial.println("READY!!!");
     vTaskDelay(pdMS_TO_TICKS(1000));
     xTaskCreate( aggregator.tasks.ReadBarometer,
                 "ReadBarometer",
@@ -164,10 +186,29 @@ void setup()
                 NULL,
                 4,
                 &fc.State_machine_handle);
+                
+    xTaskCreate(aggregator.tasks.FileRead,
+                "FileRead",
+                2048,
+                NULL,
+                4,
+                &fc.FileRead_handle);
+
+
+
+/*
+   vTaskDelay(pdMS_TO_TICKS(5000));
+   state = CONTROLLED_FLIGHT;
+   vTaskDelay(pdMS_TO_TICKS(10000));
+   state = FALL;
+   write_flag=1;
+*/
+
    vTaskDelete(NULL);
 }
 
 void loop()
-{
-  vTaskDelete(NULL);
+{ 
+     vTaskDelete(NULL);
+
 }

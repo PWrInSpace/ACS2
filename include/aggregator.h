@@ -6,7 +6,9 @@
 
 #include "time.h"
 #include "flowcontroll.h"
-#include "LittleFS.h"
+#include "SPIFFS.h"
+#include "FS.h"
+#include "LITTLEFS.h"
 #include <Wire.h>
 #include <Adafruit_BMP085.h>
 #include <Adafruit_LSM303_Accel.h>
@@ -15,8 +17,21 @@
 #include <ESP32Servo.h>
 #include <BasicLinearAlgebra.h>
 
+#undef MEMORY_SIZE
+#define MEMORY_SIZE 1500
 #define FIN_1_PIN 12
 #define FIN_2_PIN 13
+
+//
+//RAM:   [=         ]   7.4% (used 24256 bytes from 327680 bytes)
+//Flash: [===       ]  27.1% (used 354770 bytes from 1310720 bytes)I`
+
+
+extern  Data RAM_Data[MEMORY_SIZE];
+extern  unsigned  RAM_iter;
+extern FlowControll fc;
+extern int write_flag;
+extern File file;
 
     static struct timespec start;
     static struct timespec finish;
@@ -61,6 +76,7 @@ class Tasks
     static void ServoController(void* parameters);
     static void WriteToFlash(void* parameters);
     static void StateMachine(void* parameters);
+    static void FileRead(void* parameters);
 };
 
     uint8_t check_engine_fiered(void* acceleration_norm);

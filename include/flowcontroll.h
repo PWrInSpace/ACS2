@@ -25,7 +25,7 @@ struct FlowControll{
   TaskHandle_t Barometer_handle;
   TaskHandle_t State_machine_handle;
   TaskHandle_t Servo_handle;
-
+  TaskHandle_t FileRead_handle;
 };
 
 extern FlowControll fc;
