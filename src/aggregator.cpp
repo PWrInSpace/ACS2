@@ -150,31 +150,9 @@ void Tasks::StateMachine(void *parameters)
             fprintf(stderr,"Measurements not received\n");
             continue;
         }
-
-  
-      switch (state)
-      {
-  
-        case RAIL: // rocket waiting for launch, no data logging
-                   // launch detected intertially
-          state = Rail(&tmp);
-          break;
-        case ENGINE_FLIGHT: // engine on, control loop off
-          state = EngineFlight(&tmp);
-          break;
-        case CONTROLLED_FLIGHT: //engine off, control loop on
-
         //Serial.printf("%u  %3.3f\n\r",state,data);
-          state = ControlledFlight(&tmp);
-          break;
-        case FALL: //apogee achieved, no more data collection, control loop off
-          //no more state changes
-          state = Fall();
-          break;
-        default:
-          break;
-    
-        }
+        state = ControlledFlight(&tmp);
+        break;
     }
     vTaskDelete(NULL);
 }
@@ -298,7 +276,7 @@ void Tasks::WriteToFlash(void *parameters)
   
  
     unsigned i,j;
-    for(;;)
+    /*for(;;)
     {
         if(state == ENGINE_FLIGHT || state == CONTROLLED_FLIGHT)
         {
@@ -332,7 +310,7 @@ void Tasks::WriteToFlash(void *parameters)
                 
             }
         }
-    }
+    }*/
 
     vTaskDelete(NULL);
 }

@@ -51,11 +51,11 @@ void setup()
   //doesnt mount without true, maybe mount when flight is detected?
   //while(1){Serial.println("Gówno");}
   
-  if(!LITTLEFS.begin(true))
+  /*if(!LITTLEFS.begin(true))
   {
     Serial.printf("An Error has occurred while mounting LittleFS");
     return;
-  }
+  }*/
 
 
 
